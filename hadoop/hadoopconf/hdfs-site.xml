@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!--
+  Configuracion de HDFS.
+  Los directorios de datos viven en volumenes persistentes por contenedor.
+-->
+<configuration>
+
+  <property>
+    <name>dfs.namenode.name.dir</name>
+    <value>/hdfs/namenode</value>
+  </property>
+
+  <property>
+    <name>dfs.datanode.data.dir</name>
+    <value>/hdfs/datanode</value>
+  </property>
+
+  <!-- Replicacion por defecto = 1: es el valor correcto para la configuracion
+       ligera de UN solo DataNode (con 2 se quedaria permanentemente
+       subreplicada).  Para la practica de distribucion de bloques, con 2-3
+       DataNodes, subir la replicacion de un fichero concreto en caliente:
+         hdfs dfs -setrep -w 2 /ruta/fichero
+       o editar este valor y reiniciar.  Ver docs/arquitectura.md. -->
+  <property>
+    <name>dfs.replication</name>
+    <value>1</value>
+  </property>
+
+  <!-- Direccion ANUNCIADA (la que usan los clientes y los DataNodes para
+       conectar) frente a la direccion de ESCUCHA. Poner 0.0.0.0 en
+       rpc-address hace que los DataNodes intenten conectar a 0.0.0.0:8020 y
+       nunca se registren; para escuchar en todas las interfaces se usa
+       dfs.namenode.rpc-bind-host. -->
+  <property>
+    <name>dfs.namenode.rpc-address</name>
+    <value>namenode:8020</value>
+    <description>Nombre DNS interno del NameNode (nunca 0.0.0.0 como anuncio).</description>
+  </property>
+
+  <property>
+    <name>dfs.namenode.rpc-bind-host</name>
+    <value>0.0.0.0</value>
+    <description>Escucha RPC en todas las interfaces del contenedor.</description>
+  </property>
+
+  <property>
+    <name>dfs.namenode.http-address</name>
+    <value>namenode:9870</value>
+  </property>
+
+  <property>
+    <name>dfs.namenode.http-bind-host</name>
+    <value>0.0.0.0</value>
+    <description>Escucha la web UI en todas las interfaces (healthcheck local).</description>
+  </property>
+
+  <property>
+    <name>dfs.namenode.datanode.registration.ip-hostname-check</name>
+    <value>false</value>
+  </property>
+
+  <!-- Entorno educativo sin Kerberos: permisos HDFS desactivados (equivale al chmod 777 original) -->
+  <property>
+    <name>dfs.permissions.enabled</name>
+    <value>false</value>
+  </property>
+
+  <property>
+    <name>dfs.webhdfs.enabled</name>
+    <value>true</value>
+  </property>
+
+  <!-- Evita warnings por falta de DataNode en modo single-node y ajusta el timeout de registro -->
+  <property>
+    <name>dfs.datanode.max.transfer.threads</name>
+    <value>4096</value>
+  </property>
+
+</configuration>

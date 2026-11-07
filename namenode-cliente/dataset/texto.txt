@@ -1,0 +1,2 @@
+Esto es un ejemplo de programación mapreduce
+Esto es un ejemplo de contador de palabras

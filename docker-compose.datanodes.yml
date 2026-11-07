@@ -1,0 +1,80 @@
+name: bigdata
+
+# ---------------------------------------------------------------------------
+# DataNodes de HDFS (DataNode + NodeManager co-localizados).
+#
+# Este fichero se combina SIEMPRE con el nucleo:
+#   docker compose -f docker-compose.yml -f docker-compose.datanodes.yml up -d
+#
+# NUMERO DE DATANODES:
+#   * datanode1            -> activo por defecto (configuracion ligera).
+#   * datanode2            -> perfil "dn2".
+#   * datanode3            -> perfil "dn3".
+#
+#   Escalar a 2:  docker compose -f docker-compose.yml -f docker-compose.datanodes.yml --profile dn2 up -d
+#   Escalar a 3:  ... --profile dn2 --profile dn3 up -d
+#   Volver a 1:   scripts/datanodes.ps1 -Count 1   (o ./scripts/datanodes.sh 1)
+#   (recomendado: usar los scripts scripts/up.* y scripts/datanodes.*)
+#
+# Se usan servicios con NOMBRE FIJO (datanode1..3) en lugar de un unico
+# servicio escalado con "docker compose up --scale": un servicio escalado NO
+# puede dar a cada replica un volumen persistente propio (todas comparten los
+# mismos volumenes declarados), y los DataNodes DEBEN tener directorios de datos
+# independientes o HDFS los considera el mismo nodo.  Ver docs/arquitectura.md.
+#
+# Cada DataNode tiene su PROPIO volumen persistente.  Reducir el numero de
+# nodos NO borra su volumen: al volver a arrancarlo conserva sus bloques.
+#
+# El bloque comun se define UNA sola vez con un ancla YAML ("x-datanode").
+# ---------------------------------------------------------------------------
+
+x-datanode: &datanode
+  image: jgarciafl/hadoop:3.5.0
+  environment:
+    ROLE: datanode
+  depends_on:
+    namenode:
+      condition: service_healthy
+  networks:
+    - hadoop
+  restart: unless-stopped
+  mem_limit: 3g
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fsS http://localhost:9864/ >/dev/null || exit 1"]
+    interval: 15s
+    timeout: 5s
+    retries: 30
+    start_period: 60s
+
+services:
+
+  datanode1:
+    <<: *datanode
+    container_name: datanode1
+    hostname: datanode1
+    volumes:
+      - datanode1-data:/hdfs/datanode
+      - ./hadoop/hadoopconf:/app/hadoop-3.5.0/etc/hadoop:ro
+
+  datanode2:
+    <<: *datanode
+    profiles: ["dn2"]
+    container_name: datanode2
+    hostname: datanode2
+    volumes:
+      - datanode2-data:/hdfs/datanode
+      - ./hadoop/hadoopconf:/app/hadoop-3.5.0/etc/hadoop:ro
+
+  datanode3:
+    <<: *datanode
+    profiles: ["dn3"]
+    container_name: datanode3
+    hostname: datanode3
+    volumes:
+      - datanode3-data:/hdfs/datanode
+      - ./hadoop/hadoopconf:/app/hadoop-3.5.0/etc/hadoop:ro
+
+volumes:
+  datanode1-data:
+  datanode2-data:
+  datanode3-data:

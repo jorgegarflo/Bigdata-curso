@@ -1,0 +1,220 @@
+name: bigdata
+
+# ---------------------------------------------------------------------------
+# Nucleo del entorno Big Data educativo (Hadoop 3.5.0 / Java 17).
+#
+# CONFIGURACION LIGERA (por defecto) -> practicas iniciales:
+#   namenode + yarnmaster + jupyter + datanode1
+#   (el DataNode se define en docker-compose.datanodes.yml)
+#
+# CONFIGURACION COMPLETA (perfil "full") -> anade Hive, MySQL y Flume:
+#   docker compose -f docker-compose.yml -f docker-compose.datanodes.yml \
+#     --profile full up -d
+#
+# Los servicios pesados (Hive/MySQL/Flume) estan detras del perfil "full" para
+# que un equipo con 16 GB de RAM no arranque nada que no necesite.  Ver README.
+# ---------------------------------------------------------------------------
+
+services:
+
+  # -------------------------------------------------------------------------
+  # NameNode de HDFS + herramientas de practicas (Hive CLI, Pig, Sqoop) +
+  # receptor Flume (avro -> HDFS).
+  # -------------------------------------------------------------------------
+  namenode:
+    image: jgarciafl/hive-cliente:3.5.0
+    container_name: namenode
+    hostname: namenode
+    environment:
+      ROLE: namenode
+      FLUME_RECEIVER_ENABLED: "true"
+      FLUME_RECEIVER_HDFS_DIR: /flume/events
+    env_file:
+      - .env
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:9870:9870"   # HDFS NameNode Web UI
+    volumes:
+      - namenode-data:/hdfs/namenode          # metadatos HDFS (persistente)
+      - ./hadoop/hadoopconf:/app/hadoop-3.5.0/etc/hadoop:ro   # config editable sin rebuild
+      - ./spooldir:/spooldir                  # spool de practicas (host <-> contenedor)
+      - ./tests:/tests:ro                     # suite de pruebas (solo lectura)
+    networks:
+      - hadoop
+    restart: unless-stopped
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9870/ >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 90s
+
+  # -------------------------------------------------------------------------
+  # ResourceManager + MapReduce JobHistory Server
+  # -------------------------------------------------------------------------
+  yarnmaster:
+    image: jgarciafl/yarnmaster:3.5.0
+    container_name: yarnmaster
+    hostname: yarnmaster
+    environment:
+      ROLE: resourcemanager
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8088:8088"     # YARN ResourceManager Web UI
+      - "${BIND_ADDR:-127.0.0.1}:19888:19888"   # MapReduce JobHistory Web UI
+    volumes:
+      - ./hadoop/hadoopconf:/app/hadoop-3.5.0/etc/hadoop:ro   # config editable sin rebuild
+    depends_on:
+      namenode:
+        condition: service_healthy
+    networks:
+      - hadoop
+    restart: unless-stopped
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8088/ws/v1/cluster/info >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # -------------------------------------------------------------------------
+  # Jupyter Notebook.
+  #
+  # PERFIL DOCENTE (por defecto): SIN token ni contrasena, publicado solo en
+  # 127.0.0.1 para que solo el navegador del propio anfitrion acceda.  Pensado
+  # para uso individual y local; NO reutilizar sin autenticacion en un servidor
+  # accesible por otros equipos (ver docs/arquitectura.md, "Jupyter").
+  #
+  # PERFIL REMOTO (opcional): define JUPYTER_TOKEN en .env; el arranque exige
+  # entonces autenticacion por token.
+  # -------------------------------------------------------------------------
+  jupyter:
+    image: jgarciafl/jupyter:3.5.0
+    container_name: jupyter
+    hostname: jupyter
+    environment:
+      ROLE: jupyter
+      JUPYTER_PORT: "8889"
+      JUPYTER_ROOT_DIR: /media/notebooks
+    env_file:
+      - .env
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:8889:8889"    # Jupyter Notebook (solo anfitrion por defecto)
+    volumes:
+      - ./notebooks:/media/notebooks
+      - ./namenode-cliente/dataset:/dataset:ro
+      - ./tests:/tests:ro
+    depends_on:
+      namenode:
+        condition: service_healthy
+    networks:
+      - hadoop
+    restart: unless-stopped
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8889/ >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+  # =========================================================================
+  # SERVICIOS AVANZADOS (perfil "full").  Solo se arrancan con --profile full.
+  # =========================================================================
+
+  # -------------------------------------------------------------------------
+  # Base de datos del metastore de Hive (MySQL 8 dedicado, con volumen).
+  # -------------------------------------------------------------------------
+  hive-metastore-db:
+    image: mysql:8.0
+    container_name: hive-metastore-db
+    hostname: hive-metastore-db
+    profiles: ["full"]
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?define MYSQL_ROOT_PASSWORD en .env}"
+      MYSQL_DATABASE: "${HIVE_DB_NAME:-metastore}"
+      MYSQL_USER: "${HIVE_DB_USER:-hive}"
+      MYSQL_PASSWORD: "${HIVE_DB_PASSWORD:?define HIVE_DB_PASSWORD en .env}"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - hadoop
+    restart: unless-stopped
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # -------------------------------------------------------------------------
+  # Hive Metastore + HiveServer2 (usa la misma imagen que el namenode para no
+  # duplicar las descargas de Hive/Pig/Flume/Sqoop).
+  # -------------------------------------------------------------------------
+  hive-server:
+    image: jgarciafl/hive-cliente:3.5.0
+    container_name: hive-server
+    hostname: hive-server
+    profiles: ["full"]
+    environment:
+      ROLE: hive-server
+    env_file:
+      - .env
+    volumes:
+      - ./hadoop/hadoopconf:/app/hadoop-3.5.0/etc/hadoop:ro   # config editable sin rebuild
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:10002:10002"   # HiveServer2 (Beeline / JDBC)
+    depends_on:
+      hive-metastore-db:
+        condition: service_healthy
+      namenode:
+        condition: service_healthy
+    networks:
+      - hadoop
+    restart: unless-stopped
+    mem_limit: 3g
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 10002 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 120s
+
+  # -------------------------------------------------------------------------
+  # Agente de ingesta Flume: ./spooldir -> avro -> namenode:4141 -> HDFS
+  # -------------------------------------------------------------------------
+  flume-agent:
+    image: jgarciafl/flume-agent:3.5.0
+    container_name: flume-agent
+    hostname: flume-agent
+    profiles: ["full"]
+    environment:
+      ROLE: flume-agent
+    volumes:
+      - ./spooldir:/spooldir
+    depends_on:
+      namenode:
+        condition: service_healthy
+    networks:
+      - hadoop
+    restart: unless-stopped
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'org.apache.flume.node.Application.*agente1' >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+networks:
+  hadoop:
+    name: bigdata-hadoop
+    driver: bridge
+
+volumes:
+  namenode-data:
+  mysql-data:

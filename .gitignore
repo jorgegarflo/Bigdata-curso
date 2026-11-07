@@ -1,0 +1,23 @@
+# Configuracion local con contrasenas -> SE VERSIONA al ser una plataforma Big Data didáctica
+# .env
+
+# Checkpoints de Jupyter
+**/.ipynb_checkpoints/
+
+# Ficheros spool procesados / de trabajo
+spooldir/*
+!spooldir/.gitkeep
+!spooldir/README.md
+
+# Texto descargado por el cuaderno de practicas El Quijote (artefacto de ejecucion)
+notebooks/quijote.txt
+
+# Logs y temporales locales
+*.log
+
+# Informes generados por la suite (se versionan a mano solo los de referencia)
+tests/results/
+
+# Cache local del tarball de Hive (469 MB, solo acelera los builds)
+namenode-cliente/cache/*.tar.gz*
+cache/
