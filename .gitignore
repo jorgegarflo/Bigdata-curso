@@ -9,8 +9,6 @@ spooldir/*
 !spooldir/.gitkeep
 !spooldir/README.md
 
-# Texto descargado por el cuaderno de practicas El Quijote (artefacto de ejecucion)
-notebooks/quijote.txt
 
 # Logs y temporales locales
 *.log
@@ -21,3 +19,4 @@ tests/results/
 # Cache local del tarball de Hive (469 MB, solo acelera los builds)
 namenode-cliente/cache/*.tar.gz*
 cache/
+
